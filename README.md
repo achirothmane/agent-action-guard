@@ -357,6 +357,19 @@ The current pinned real-world acceptance corpus contains 25 cases:
 zero missed positives and zero certain or possible false positives before CI
 passes.
 
+## Evidence-before-Action AuthorityGrant adapter
+
+The optional `AuthorityGrant` adapter is a local projection of an ALLOW
+decision, not a portable bearer credential. Under `eba.context/v1` it binds
+the exact action subject, trace, audience and namespace and records
+`trust.mode = trusted_in_process`.
+
+Its SHA-256 integrity field detects mutation. It does not authenticate an
+artifact received from an untrusted external caller. Crossing that boundary
+requires an authenticated parent/signature supplied by the integrating
+system. A client-provided tenant or namespace string is context, not
+authentication.
+
 ## Development
 
 Run the full test suite from the repository root:
