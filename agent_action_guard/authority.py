@@ -12,11 +12,14 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from .canonical import canonical_json_bytes as _canonical_json_bytes
+
 from agent_action_guard.model import Action, Decision, Effect, Policy
 
 CONTRACT_VERSION = "eba.integration/v0.1"
 TEMPORAL_PROFILE_VERSION = "eba.temporal/v1"
 CONTEXT_PROFILE_VERSION = "eba.context/v1"
+CANONICAL_PROFILE_VERSION = "eba.canonical-json/v1"
 AUTHORITY_KIND = "AuthorityGrant"
 
 
@@ -41,12 +44,7 @@ def _parse_time(value: Any, *, field: str) -> datetime:
 
 
 def canonical_json_bytes(value: dict[str, Any]) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
+    return _canonical_json_bytes(value, error=AuthorityGrantError)
 
 
 def _digest(value: dict[str, Any]) -> str:
@@ -123,6 +121,7 @@ def build_authority_grant(
         "kind": AUTHORITY_KIND,
         "temporal_profile": TEMPORAL_PROFILE_VERSION,
         "context_profile": CONTEXT_PROFILE_VERSION,
+        "canonical_profile": CANONICAL_PROFILE_VERSION,
         "trace_id": trace_id,
         "subject_ref": action.action_id,
         "producer": producer,
@@ -176,6 +175,8 @@ def validate_authority_grant(
         raise AuthorityGrantError("AUTHORITY_REVOKED")
     if grant.get("context_profile") != CONTEXT_PROFILE_VERSION:
         raise AuthorityGrantError("AUTHORITY_CONTEXT_PROFILE_INVALID")
+    if grant.get("canonical_profile") != CANONICAL_PROFILE_VERSION:
+        raise AuthorityGrantError("AUTHORITY_CANONICAL_PROFILE_INVALID")
     if grant.get("trace_id") != trace_id:
         raise AuthorityGrantError("AUTHORITY_TRACE_MISMATCH")
     trust = grant.get("trust")
