@@ -75,6 +75,7 @@ class TestAuthorityGrant(unittest.TestCase):
                 policy=pol,
                 decision=decision,
                 trace_id="tr-1",
+                created_at=NOW,
                 expires_at=EXPIRY,
             )
 
@@ -88,6 +89,7 @@ class TestAuthorityGrant(unittest.TestCase):
                 policy=pol,
                 decision=decision,
                 trace_id="tr-1",
+                created_at=NOW,
                 expires_at=EXPIRY,
             )
 
@@ -99,6 +101,7 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
             expires_at=EXPIRY,
         )
         tampered = copy.deepcopy(grant)
@@ -114,6 +117,7 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
             expires_at=EXPIRY,
         )
         changed = action(resource="github://achirothmane/workflow-failure-lab/actions/runs/999")
@@ -128,6 +132,7 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
             expires_at=EXPIRY,
         )
         changed = action(actor="other-agent")
