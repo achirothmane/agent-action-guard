@@ -15,6 +15,7 @@ from typing import Any
 from agent_action_guard.model import Action, Decision, Effect, Policy
 
 CONTRACT_VERSION = "eba.integration/v0.1"
+TEMPORAL_PROFILE_VERSION = "eba.temporal/v1"
 AUTHORITY_KIND = "AuthorityGrant"
 
 
@@ -24,6 +25,18 @@ class AuthorityGrantError(ValueError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _parse_time(value: Any, *, field: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise AuthorityGrantError(f"{field.upper()}_INVALID")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise AuthorityGrantError(f"{field.upper()}_INVALID") from exc
+    if parsed.tzinfo is None:
+        raise AuthorityGrantError(f"{field.upper()}_INVALID")
+    return parsed.astimezone(timezone.utc)
 
 
 def canonical_json_bytes(value: dict[str, Any]) -> bytes:
@@ -91,10 +104,17 @@ def build_authority_grant(
         raise AuthorityGrantError("ALLOW decision has no matched ALLOW rule")
 
     timestamp = created_at or _utc_now()
+    issued_at = _parse_time(timestamp, field="authority_not_before")
+    if expires_at is None:
+        raise AuthorityGrantError("AUTHORITY_EXPIRES_AT_MISSING")
+    expiry = _parse_time(expires_at, field="authority_expires_at")
+    if expiry <= issued_at:
+        raise AuthorityGrantError("AUTHORITY_WINDOW_INVALID")
 
     grant: dict[str, Any] = {
         "contract_version": CONTRACT_VERSION,
         "kind": AUTHORITY_KIND,
+        "temporal_profile": TEMPORAL_PROFILE_VERSION,
         "trace_id": trace_id,
         "producer": producer,
         "created_at": timestamp,
@@ -127,6 +147,7 @@ def build_authority_grant(
 def validate_authority_grant(
     grant: dict[str, Any],
     *,
+    now: str,
     action: Action | None = None,
 ) -> None:
     if grant.get("contract_version") != CONTRACT_VERSION:
@@ -135,6 +156,18 @@ def validate_authority_grant(
         raise AuthorityGrantError("expected AuthorityGrant")
     if grant.get("revoked") is not False:
         raise AuthorityGrantError("AUTHORITY_REVOKED")
+    if grant.get("temporal_profile") not in {None, TEMPORAL_PROFILE_VERSION}:
+        raise AuthorityGrantError("AUTHORITY_TEMPORAL_PROFILE_INVALID")
+
+    current = _parse_time(now, field="evaluation_time")
+    not_before = _parse_time(grant.get("not_before"), field="authority_not_before")
+    expires_at = _parse_time(grant.get("expires_at"), field="authority_expires_at")
+    if expires_at <= not_before:
+        raise AuthorityGrantError("AUTHORITY_WINDOW_INVALID")
+    if current < not_before:
+        raise AuthorityGrantError("AUTHORITY_NOT_YET_VALID")
+    if current >= expires_at:
+        raise AuthorityGrantError("AUTHORITY_EXPIRED")
 
     integrity = grant.get("integrity")
     if not isinstance(integrity, dict) or integrity.get("algorithm") != "sha256":
