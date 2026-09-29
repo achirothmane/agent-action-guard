@@ -10,6 +10,10 @@ from agent_action_guard.engine import evaluate
 from agent_action_guard.model import Action, Effect, Policy, Rule
 
 
+NOW = "2026-09-27T16:00:00Z"
+EXPIRY = "2026-09-27T16:05:00Z"
+
+
 def action(**overrides):
     values = dict(
         action_id="req-1",
@@ -51,14 +55,15 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=decision,
             trace_id="tr-1",
-            created_at="2026-09-27T16:00:00Z",
+            created_at=NOW,
+            expires_at=EXPIRY,
         )
 
         self.assertEqual(grant["contract_version"], "eba.integration/v0.1")
         self.assertEqual(grant["kind"], "AuthorityGrant")
         self.assertEqual(grant["principal"]["id"], "ci-retry-gate")
         self.assertEqual(grant["matched_allow_rule_ids"], ["allow-ci-rerun"])
-        validate_authority_grant(grant, action=act)
+        validate_authority_grant(grant, action=act, now=NOW)
 
     def test_deny_cannot_produce_authority_grant(self):
         act = action()
@@ -70,6 +75,8 @@ class TestAuthorityGrant(unittest.TestCase):
                 policy=pol,
                 decision=decision,
                 trace_id="tr-1",
+                created_at=NOW,
+                expires_at=EXPIRY,
             )
 
     def test_require_approval_cannot_produce_authority_grant(self):
@@ -82,6 +89,8 @@ class TestAuthorityGrant(unittest.TestCase):
                 policy=pol,
                 decision=decision,
                 trace_id="tr-1",
+                created_at=NOW,
+                expires_at=EXPIRY,
             )
 
     def test_tampering_fails_integrity(self):
@@ -92,11 +101,13 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
+            expires_at=EXPIRY,
         )
         tampered = copy.deepcopy(grant)
         tampered["resource_scope"] = ["github://other"]
         with self.assertRaisesRegex(AuthorityGrantError, "INTEGRITY"):
-            validate_authority_grant(tampered, action=act)
+            validate_authority_grant(tampered, action=act, now=NOW)
 
     def test_grant_is_bound_to_exact_action_scope(self):
         act = action()
@@ -106,10 +117,12 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
+            expires_at=EXPIRY,
         )
         changed = action(resource="github://achirothmane/workflow-failure-lab/actions/runs/999")
         with self.assertRaisesRegex(AuthorityGrantError, "SCOPE_MISMATCH"):
-            validate_authority_grant(grant, action=changed)
+            validate_authority_grant(grant, action=changed, now=NOW)
 
     def test_principal_mismatch_is_rejected(self):
         act = action()
@@ -119,10 +132,80 @@ class TestAuthorityGrant(unittest.TestCase):
             policy=pol,
             decision=evaluate(act, pol),
             trace_id="tr-1",
+            created_at=NOW,
+            expires_at=EXPIRY,
         )
         changed = action(actor="other-agent")
         with self.assertRaisesRegex(AuthorityGrantError, "PRINCIPAL_MISMATCH"):
-            validate_authority_grant(grant, action=changed)
+            validate_authority_grant(grant, action=changed, now=NOW)
+
+
+
+
+    def test_expiry_is_half_open(self):
+        act = action()
+        pol = policy()
+        grant = build_authority_grant(
+            action=act,
+            policy=pol,
+            decision=evaluate(act, pol),
+            trace_id="tr-1",
+            created_at=NOW,
+            expires_at=EXPIRY,
+        )
+        validate_authority_grant(
+            grant,
+            action=act,
+            now="2026-09-27T16:04:59Z",
+        )
+        with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_EXPIRED"):
+            validate_authority_grant(
+                grant,
+                action=act,
+                now=EXPIRY,
+            )
+
+    def test_missing_expiry_cannot_create_authority(self):
+        act = action()
+        pol = policy()
+        with self.assertRaisesRegex(AuthorityGrantError, "EXPIRES_AT_MISSING"):
+            build_authority_grant(
+                action=act,
+                policy=pol,
+                decision=evaluate(act, pol),
+                trace_id="tr-1",
+                created_at=NOW,
+            )
+
+    def test_malformed_expiry_is_rejected(self):
+        act = action()
+        pol = policy()
+        grant = build_authority_grant(
+            action=act,
+            policy=pol,
+            decision=evaluate(act, pol),
+            trace_id="tr-1",
+            created_at=NOW,
+            expires_at=EXPIRY,
+        )
+        broken = copy.deepcopy(grant)
+        broken["expires_at"] = 123
+        import hashlib, json
+        unsigned = dict(broken)
+        unsigned.pop("integrity", None)
+        broken["integrity"] = {
+            "algorithm": "sha256",
+            "digest": hashlib.sha256(
+                json.dumps(
+                    unsigned,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest(),
+        }
+        with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_EXPIRES_AT_INVALID"):
+            validate_authority_grant(broken, action=act, now=NOW)
 
 
 if __name__ == "__main__":
