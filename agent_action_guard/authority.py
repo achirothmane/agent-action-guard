@@ -16,6 +16,7 @@ from agent_action_guard.model import Action, Decision, Effect, Policy
 
 CONTRACT_VERSION = "eba.integration/v0.1"
 TEMPORAL_PROFILE_VERSION = "eba.temporal/v1"
+CONTEXT_PROFILE_VERSION = "eba.context/v1"
 AUTHORITY_KIND = "AuthorityGrant"
 
 
@@ -86,6 +87,8 @@ def build_authority_grant(
     trace_id: str,
     created_at: str | None = None,
     expires_at: str | None = None,
+    audience: str,
+    namespace: str,
     producer: str = "agent-action-guard",
 ) -> dict[str, Any]:
     """Derive an AuthorityGrant from one exact ALLOW evaluation.
@@ -94,6 +97,10 @@ def build_authority_grant(
     """
     if not trace_id:
         raise AuthorityGrantError("trace_id is required")
+    if not audience:
+        raise AuthorityGrantError("audience is required")
+    if not namespace:
+        raise AuthorityGrantError("namespace is required")
     if decision.action_id != action.action_id:
         raise AuthorityGrantError("decision/action id mismatch")
     if decision.policy_id != policy.policy_id:
@@ -115,8 +122,16 @@ def build_authority_grant(
         "contract_version": CONTRACT_VERSION,
         "kind": AUTHORITY_KIND,
         "temporal_profile": TEMPORAL_PROFILE_VERSION,
+        "context_profile": CONTEXT_PROFILE_VERSION,
         "trace_id": trace_id,
+        "subject_ref": action.action_id,
         "producer": producer,
+        "trust": {
+            "mode": "trusted_in_process",
+            "issuer": f"policy:{policy.policy_id}",
+            "audience": audience,
+            "namespace": namespace,
+        },
         "created_at": timestamp,
         "principal": {
             "type": "agent",
@@ -148,6 +163,9 @@ def validate_authority_grant(
     grant: dict[str, Any],
     *,
     now: str,
+    audience: str,
+    namespace: str,
+    trace_id: str,
     action: Action | None = None,
 ) -> None:
     if grant.get("contract_version") != CONTRACT_VERSION:
@@ -156,6 +174,17 @@ def validate_authority_grant(
         raise AuthorityGrantError("expected AuthorityGrant")
     if grant.get("revoked") is not False:
         raise AuthorityGrantError("AUTHORITY_REVOKED")
+    if grant.get("context_profile") != CONTEXT_PROFILE_VERSION:
+        raise AuthorityGrantError("AUTHORITY_CONTEXT_PROFILE_INVALID")
+    if grant.get("trace_id") != trace_id:
+        raise AuthorityGrantError("AUTHORITY_TRACE_MISMATCH")
+    trust = grant.get("trust")
+    if not isinstance(trust, dict) or trust.get("mode") != "trusted_in_process":
+        raise AuthorityGrantError("AUTHORITY_TRUST_ENVELOPE_INVALID")
+    if trust.get("audience") != audience:
+        raise AuthorityGrantError("AUTHORITY_AUDIENCE_MISMATCH")
+    if trust.get("namespace") != namespace:
+        raise AuthorityGrantError("AUTHORITY_NAMESPACE_MISMATCH")
     if grant.get("temporal_profile") not in {None, TEMPORAL_PROFILE_VERSION}:
         raise AuthorityGrantError("AUTHORITY_TEMPORAL_PROFILE_INVALID")
 
@@ -178,6 +207,8 @@ def validate_authority_grant(
         raise AuthorityGrantError("AUTHORITY_INTEGRITY_INVALID")
 
     if action is not None:
+        if grant.get("subject_ref") != action.action_id:
+            raise AuthorityGrantError("AUTHORITY_SUBJECT_MISMATCH")
         principal = grant.get("principal")
         if not isinstance(principal, dict) or principal.get("id") != action.actor:
             raise AuthorityGrantError("AUTHORITY_PRINCIPAL_MISMATCH")
