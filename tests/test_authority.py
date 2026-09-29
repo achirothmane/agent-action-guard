@@ -12,6 +12,9 @@ from agent_action_guard.model import Action, Effect, Policy, Rule
 
 NOW = "2026-09-27T16:00:00Z"
 EXPIRY = "2026-09-27T16:05:00Z"
+AUDIENCE = "workflow-failure-lab/ci-retry-gate"
+NAMESPACE = "github-repository:achirothmane/workflow-failure-lab"
+TRACE = "tr-1"
 
 
 def action(**overrides):
@@ -54,7 +57,9 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=decision,
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
@@ -63,7 +68,7 @@ class TestAuthorityGrant(unittest.TestCase):
         self.assertEqual(grant["kind"], "AuthorityGrant")
         self.assertEqual(grant["principal"]["id"], "ci-retry-gate")
         self.assertEqual(grant["matched_allow_rule_ids"], ["allow-ci-rerun"])
-        validate_authority_grant(grant, action=act, now=NOW)
+        validate_authority_grant(grant, action=act, now=NOW, audience=AUDIENCE, namespace=NAMESPACE, trace_id=TRACE)
 
     def test_deny_cannot_produce_authority_grant(self):
         act = action()
@@ -74,7 +79,9 @@ class TestAuthorityGrant(unittest.TestCase):
                 action=act,
                 policy=pol,
                 decision=decision,
-                trace_id="tr-1",
+                trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
                 created_at=NOW,
                 expires_at=EXPIRY,
             )
@@ -88,7 +95,9 @@ class TestAuthorityGrant(unittest.TestCase):
                 action=act,
                 policy=pol,
                 decision=decision,
-                trace_id="tr-1",
+                trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
                 created_at=NOW,
                 expires_at=EXPIRY,
             )
@@ -100,14 +109,16 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=evaluate(act, pol),
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
         tampered = copy.deepcopy(grant)
         tampered["resource_scope"] = ["github://other"]
         with self.assertRaisesRegex(AuthorityGrantError, "INTEGRITY"):
-            validate_authority_grant(tampered, action=act, now=NOW)
+            validate_authority_grant(tampered, action=act, now=NOW, audience=AUDIENCE, namespace=NAMESPACE, trace_id=TRACE)
 
     def test_grant_is_bound_to_exact_action_scope(self):
         act = action()
@@ -116,13 +127,15 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=evaluate(act, pol),
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
         changed = action(resource="github://achirothmane/workflow-failure-lab/actions/runs/999")
         with self.assertRaisesRegex(AuthorityGrantError, "SCOPE_MISMATCH"):
-            validate_authority_grant(grant, action=changed, now=NOW)
+            validate_authority_grant(grant, action=changed, now=NOW, audience=AUDIENCE, namespace=NAMESPACE, trace_id=TRACE)
 
     def test_principal_mismatch_is_rejected(self):
         act = action()
@@ -131,13 +144,15 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=evaluate(act, pol),
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
         changed = action(actor="other-agent")
         with self.assertRaisesRegex(AuthorityGrantError, "PRINCIPAL_MISMATCH"):
-            validate_authority_grant(grant, action=changed, now=NOW)
+            validate_authority_grant(grant, action=changed, now=NOW, audience=AUDIENCE, namespace=NAMESPACE, trace_id=TRACE)
 
 
 
@@ -149,7 +164,9 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=evaluate(act, pol),
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
@@ -157,12 +174,18 @@ class TestAuthorityGrant(unittest.TestCase):
             grant,
             action=act,
             now="2026-09-27T16:04:59Z",
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
+            trace_id=TRACE,
         )
         with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_EXPIRED"):
             validate_authority_grant(
                 grant,
                 action=act,
                 now=EXPIRY,
+                audience=AUDIENCE,
+                namespace=NAMESPACE,
+                trace_id=TRACE,
             )
 
     def test_missing_expiry_cannot_create_authority(self):
@@ -173,7 +196,9 @@ class TestAuthorityGrant(unittest.TestCase):
                 action=act,
                 policy=pol,
                 decision=evaluate(act, pol),
-                trace_id="tr-1",
+                trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
                 created_at=NOW,
             )
 
@@ -184,7 +209,9 @@ class TestAuthorityGrant(unittest.TestCase):
             action=act,
             policy=pol,
             decision=evaluate(act, pol),
-            trace_id="tr-1",
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
             created_at=NOW,
             expires_at=EXPIRY,
         )
@@ -205,7 +232,67 @@ class TestAuthorityGrant(unittest.TestCase):
             ).hexdigest(),
         }
         with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_EXPIRES_AT_INVALID"):
-            validate_authority_grant(broken, action=act, now=NOW)
+            validate_authority_grant(broken, action=act, now=NOW, audience=AUDIENCE, namespace=NAMESPACE, trace_id=TRACE)
+
+
+
+
+    def test_rehashed_subject_substitution_is_rejected(self):
+        act = action()
+        pol = policy()
+        grant = build_authority_grant(
+            action=act,
+            policy=pol,
+            decision=evaluate(act, pol),
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
+            created_at=NOW,
+            expires_at=EXPIRY,
+        )
+        changed = copy.deepcopy(grant)
+        changed["subject_ref"] = "other-action"
+        import hashlib, json
+        unsigned = dict(changed)
+        unsigned.pop("integrity", None)
+        changed["integrity"] = {
+            "algorithm": "sha256",
+            "digest": hashlib.sha256(
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+            ).hexdigest(),
+        }
+        with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_SUBJECT_MISMATCH"):
+            validate_authority_grant(
+                changed,
+                action=act,
+                now=NOW,
+                audience=AUDIENCE,
+                namespace=NAMESPACE,
+                trace_id=TRACE,
+            )
+
+    def test_wrong_namespace_rejects_even_with_valid_self_hash(self):
+        act = action()
+        pol = policy()
+        grant = build_authority_grant(
+            action=act,
+            policy=pol,
+            decision=evaluate(act, pol),
+            trace_id=TRACE,
+            audience=AUDIENCE,
+            namespace=NAMESPACE,
+            created_at=NOW,
+            expires_at=EXPIRY,
+        )
+        with self.assertRaisesRegex(AuthorityGrantError, "AUTHORITY_NAMESPACE_MISMATCH"):
+            validate_authority_grant(
+                grant,
+                action=act,
+                now=NOW,
+                audience=AUDIENCE,
+                namespace="github-repository:other/repo",
+                trace_id=TRACE,
+            )
 
 
 if __name__ == "__main__":
